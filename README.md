@@ -69,7 +69,6 @@ ethcrawler -a 0xYourEthereumAddress -config path/to/your/config.env
 
 ## 🛠️ Planned
 
-- Pagination support (for >10,000 transactions)
 - Export to SQLite / PostgreSQL
 - Analysis of recurring payments (salary-like behavior)
 - Web dashboard and visualizations
