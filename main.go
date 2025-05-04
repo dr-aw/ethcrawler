@@ -190,12 +190,16 @@ func setupConfiguration(customConfigPath string) (string, string) {
 func findConfigFile() string {
 	// Пути для поиска по приоритету
 	searchPaths := []string{
-		getConfigPath(ConfFileName), // Сначала ищем .conf файл
-		getConfigPath(EnvFileName),  // Затем .env файл
+		getConfigPath(ConfFileName), // Сначала ищем .conf файл рядом с exe
+		getConfigPath(EnvFileName),  // Затем .env файл рядом с exe
+		ConfFileName,                // Затем .conf в текущей директории
+		EnvFileName,                 // Затем .env в текущей директории
 	}
 
 	for _, path := range searchPaths {
 		if fileExists(path) {
+			fmt.Printf("%sFound configuration file: %s%s\n",
+				etherscan.ColorGreen, path, etherscan.ColorReset)
 			return path
 		}
 	}

@@ -1,5 +1,6 @@
 # Environment files
 .env
+.conf
 
 # Binaries for programs and plugins
 *.exe
