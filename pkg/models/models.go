@@ -8,18 +8,19 @@ import (
 
 // EtherscanResponse represents the response from Etherscan API
 type EtherscanResponse struct {
-	Status  string         `json:"status"`
-	Message string         `json:"message"`
-	Result  json.RawMessage`json:"result"`
+	Status  string          `json:"status"`
+	Message string          `json:"message"`
+	Result  json.RawMessage `json:"result"`
 }
 
 // ERC20Transfer represents a single ERC20 token transfer
 type ERC20Transfer struct {
-	TimeStamp string `json:"timeStamp"`
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Value     string `json:"value"`
-	Hash      string `json:"hash"`
+	TimeStamp   string `json:"timeStamp"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Value       string `json:"value"`
+	Hash        string `json:"hash"`
+	BlockNumber string `json:"blockNumber"`
 }
 
 // FormattedTransfer adds a formatted timestamp for display
@@ -40,4 +41,9 @@ func TimeStampToDate(ts string) (string, int64, error) {
 	}
 	t := time.Unix(sec, 0)
 	return t.Format("2006-01-02 15:04:05"), sec, nil
-} 
+}
+
+// StringToInt converts a string to an integer
+func StringToInt(value string) (int, error) {
+	return strconv.Atoi(value)
+}

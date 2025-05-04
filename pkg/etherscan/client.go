@@ -37,17 +37,64 @@ func NewClient(apiKey, contract string) *Client {
 // GetTokenTransfers fetches ERC20 token transfers for a given address
 func (c *Client) GetTokenTransfers(address string) ([]models.ERC20Transfer, error) {
 	var allTransfers []models.ERC20Transfer
-	pageSize := 5000 // Etherscan allows max 10000, but we'll use a smaller size to be safe
+
+	// Etherscan API limitation: page * offset must be <= 10000
+	// Using a dynamic pagination strategy to handle large datasets
+	maxWindow := 10000
+	initialPageSize := 5000
+
+	// First fetch with large page size to get most results efficiently
+	pageSize := initialPageSize
 	page := 1
+	startBlock := 0
+
+	// Display counter for showing logical page numbers to user
+	displayPage := 1
 
 	for {
-		fmt.Printf("%sDownloading page %d (transactions %d-%d)...%s\n",
-			ColorYellow, page, ((page-1)*pageSize)+1, page*pageSize, ColorReset)
+		// Check if we'd exceed the API limit with current page
+		if page*pageSize > maxWindow {
+			// We need to reset our pagination strategy
+			// Save the last block we processed
+			if len(allTransfers) > 0 {
+				lastTransfer := allTransfers[len(allTransfers)-1]
+				blockNum, err := models.StringToInt(lastTransfer.BlockNumber)
+				if err != nil {
+					return nil, fmt.Errorf("error converting block number: %v", err)
+				}
+				// Start from the next block
+				startBlock = blockNum + 1
+			}
+			// Reset pagination for API, but keep display counter incrementing
+			page = 1
+		}
 
-		url := fmt.Sprintf(
-			"%s?module=account&action=tokentx&contractaddress=%s&address=%s&page=%d&offset=%d&sort=asc&apikey=%s",
-			c.BaseURL, c.Contract, address, page, pageSize, c.ApiKey,
-		)
+		// Calculate display transaction range based on total count so far
+		displayStart := ((displayPage - 1) * pageSize) + 1
+		displayEnd := displayPage * pageSize
+
+		fmt.Printf("%sDownloading page %d (transactions %d-%d)%s",
+			ColorYellow, displayPage, displayStart, displayEnd, ColorReset)
+
+		if startBlock > 0 {
+			fmt.Printf("%s from block %d%s\n", ColorYellow, startBlock, ColorReset)
+		} else {
+			fmt.Println(ColorReset)
+		}
+
+		// Build URL with startBlock parameter if needed
+		var url string
+		if startBlock > 0 {
+			url = fmt.Sprintf(
+				"%s?module=account&action=tokentx&contractaddress=%s&address=%s&page=%d&offset=%d&sort=asc&startblock=%d&apikey=%s",
+				c.BaseURL, c.Contract, address, page, pageSize, startBlock, c.ApiKey,
+			)
+		} else {
+			url = fmt.Sprintf(
+				"%s?module=account&action=tokentx&contractaddress=%s&address=%s&page=%d&offset=%d&sort=asc&apikey=%s",
+				c.BaseURL, c.Contract, address, page, pageSize, c.ApiKey,
+			)
+		}
 
 		resp, err := http.Get(url)
 		if err != nil {
@@ -82,11 +129,28 @@ func (c *Client) GetTokenTransfers(address string) ([]models.ERC20Transfer, erro
 
 		// If we got fewer transfers than the page size, we've reached the end
 		if len(pageTransfers) < pageSize {
+			// If we were using a startBlock filter, we need to check if
+			// we've actually reached the end or just need to reset again
+			if startBlock > 0 && len(pageTransfers) == pageSize {
+				// Continue with next block range
+				lastTransfer := pageTransfers[len(pageTransfers)-1]
+				blockNum, err := models.StringToInt(lastTransfer.BlockNumber)
+				if err != nil {
+					return nil, fmt.Errorf("error converting block number: %v", err)
+				}
+				startBlock = blockNum + 1
+				page = 1
+				// Do not reset displayPage, it continues to increase
+				displayPage++
+				continue
+			}
+			// We've truly reached the end
 			break
 		}
 
 		// Increment page for next request
 		page++
+		displayPage++
 
 		// Sleep to avoid rate limiting
 		time.Sleep(200 * time.Millisecond)
