@@ -1,0 +1,22 @@
+# Environment files
+.env
+
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Other files and directories to ignore
+*.test
+*.out
+vendor/
+.vscode/
+.idea/
+*.swp
+*.log
+*.tmp
+*.temp
+*.bak
+*.old
+build/
