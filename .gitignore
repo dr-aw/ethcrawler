@@ -20,4 +20,5 @@ vendor/
 *.bak
 *.old
 *.txt
+*.xlsx
 build/

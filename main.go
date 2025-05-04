@@ -4,112 +4,80 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
-	"strconv"
-	"time"
+
+	"ethcrawler/pkg/etherscan"
+	"ethcrawler/pkg/output"
 
 	"github.com/joho/godotenv"
 )
 
-type EtherscanResponse struct {
-	Status  string         	`json:"status"`
-	Message string         	`json:"message"`
-	Result  json.RawMessage	`json:"result"`
-}
-
-type ERC20Transfer struct {
-	TimeStamp string `json:"timeStamp"`
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Value     string `json:"value"`
-	Hash      string `json:"hash"`
-}
-
-var colorReset 	= "\033[0m"
-var colorRed 	= "\033[31m"
-var colorGreen 	= "\033[32m"
-
 func main() {
+	// Parse command line arguments
 	address := flag.String("a", "", "Ethereum address")
+	outputFormat := flag.String("format", "both", "Output format: text, excel, or both")
 	flag.Parse()
 
+	// Validate the Ethereum address
 	if *address == "" {
-		log.Fatalf("%sEthereum address is necessary%s\n", colorRed, colorReset)
+		log.Fatalf("%sEthereum address is necessary%s\n", etherscan.ColorRed, etherscan.ColorReset)
 	}
 
 	if len(*address) != 42 || (*address)[:2] != "0x" {
-		log.Fatalf("%sAddress has to start from 0x and contain 40 hex-symbols%s\n", colorRed, colorReset)
+		log.Fatalf("%sAddress has to start from 0x and contain 40 hex-symbols%s\n", 
+			etherscan.ColorRed, etherscan.ColorReset)
 	}
 
-	fmt.Printf("%sFetching transactions for address: %s%s\n", colorGreen, *address, colorReset)	
-	
+	fmt.Printf("%sFetching transactions for address: %s%s\n", 
+		etherscan.ColorGreen, *address, etherscan.ColorReset)
 
+	// Load environment variables
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("%sError loading .env file%s\n", colorRed, colorReset)
+		log.Fatalf("%sError loading .env file%s\n", etherscan.ColorRed, etherscan.ColorReset)
 	}
 
 	apiKey := os.Getenv("ETHERSCAN_API_KEY")
 	contract := os.Getenv("USDT_CONTRACT")
 
+	// Create a new Etherscan client
+	client := etherscan.NewClient(apiKey, contract)
 
-	url := fmt.Sprintf(
-		"https://api.etherscan.io/api?module=account&action=tokentx&contractaddress=%s&address=%s&page=1&offset=10000&sort=asc&apikey=%s",
-		contract, *address, apiKey,
-	)
-
-	resp, err := http.Get(url)
+	// Get the token transfers
+	transfers, err := client.GetTokenTransfers(*address)
 	if err != nil {
-		log.Fatalf("%sError request: %v%s\n", colorRed, err, colorReset)
+		log.Fatalf("%sError fetching transfers: %v%s\n", 
+			etherscan.ColorRed, err, etherscan.ColorReset)
 	}
-	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
-
-	var raw EtherscanResponse
-	err = json.Unmarshal(body, &raw)
+	// Format the transfers
+	formattedTransfers, err := etherscan.FormatTransfers(transfers)
 	if err != nil {
-		log.Fatalf("%sJSON error: %v%s\n", colorRed, err, colorReset)
+		log.Fatalf("%sError formatting transfers: %v%s\n", 
+			etherscan.ColorRed, err, etherscan.ColorReset)
 	}
 
-	if raw.Status != "1" {
-		log.Fatalf("%sEtherscan error: %v%s", colorRed, raw.Message, colorReset)
+	// Save the transfers in the requested format(s)
+	if *outputFormat == "text" || *outputFormat == "both" {
+		err = output.SaveToTextFile(formattedTransfers, "usdt_transactions.txt")
+		if err != nil {
+			log.Fatalf("%sError saving text file: %v%s\n", 
+				etherscan.ColorRed, err, etherscan.ColorReset)
+		}
+		fmt.Printf("%sTransactions saved to `usdt_transactions.txt`%s\n", 
+			etherscan.ColorGreen, etherscan.ColorReset)
 	}
 
-	var result []ERC20Transfer
-	err = json.Unmarshal(raw.Result, &result)
-	if err != nil {
-		log.Fatalf("%sError parsing list of transactions: %v%s\n", colorRed, err, colorReset)
+	if *outputFormat == "excel" || *outputFormat == "both" {
+		err = output.SaveToExcel(formattedTransfers, "usdt_transactions.xlsx")
+		if err != nil {
+			log.Fatalf("%sError saving Excel file: %v%s\n", 
+				etherscan.ColorRed, err, etherscan.ColorReset)
+		}
+		fmt.Printf("%sTransactions saved to `usdt_transactions.xlsx`%s\n", 
+			etherscan.ColorGreen, etherscan.ColorReset)
 	}
-
-	// Open file
-	f, err := os.Create("usdt_transactions.txt")
-	if err != nil {
-		log.Fatalf("%sError creating file: %v%s", colorRed, err, colorReset)
-	}
-	defer f.Close()
-
-	for _, tx := range result {
-		timestamp, _ := timeStampToDate(tx.TimeStamp)
-		line := fmt.Sprintf("%s | FROM: %s | TO: %s | VALUE: %s | HASH: %s\n",
-			timestamp, tx.From, tx.To, tx.Value, tx.Hash)
-		f.WriteString(line)
-	}
-
-	fmt.Printf("%sTransactions saved to `usdt_transactions.txt`%s\n", colorGreen, colorReset)
-}
-
-func timeStampToDate(ts string) (string, error) {
-	sec, err := strconv.ParseInt(ts, 10, 64)
-	if err != nil {
-		return "", err
-	}
-	t := time.Unix(sec, 0)
-	return t.Format("2006-01-02 15:04:05"), nil
 }
