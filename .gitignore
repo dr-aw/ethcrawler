@@ -3,9 +3,11 @@
 
 # Binaries for programs and plugins
 *.exe
+*.exe~
 *.dll
 *.so
 *.dylib
+ethcrawler
 
 # Other files and directories to ignore
 *.test
