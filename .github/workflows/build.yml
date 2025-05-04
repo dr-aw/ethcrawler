@@ -1,126 +1,107 @@
-name: Build and Release
+name: Build executables for release
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
+    tags:
+      - 'v*'
 
 jobs:
-  build:
-    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-            arch: amd64
-            extension: .exe
-          - os: ubuntu-latest
-            platform: linux
-            arch: amd64
-            extension: ''
-          - os: macos-latest
-            platform: darwin
-            arch: arm64
-            extension: ''
-
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.23'
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
 
-    - name: Install dependencies
-      run: go mod download
+      - name: Install dependencies
+        run: go mod download
 
-    - name: Run tests
-      run: go test ./...
+      - name: Build executable
+        run: |
+          go build -v -o ethcrawler_winx64.exe .
+          echo "Built ethcrawler for Windows"
 
-    - name: Build
-      env:
-        GOOS: ${{ matrix.platform }}
-        GOARCH: ${{ matrix.arch }}
-      run: |
-        go build -v -o ethcrawler${{ matrix.extension }} .
-        echo "Built ethcrawler for ${{ matrix.platform }}-${{ matrix.arch }}"
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethcrawler-windows
+          path: ethcrawler_winx64.exe
 
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ethcrawler-${{ matrix.platform }}-${{ matrix.arch }}
-        path: ethcrawler${{ matrix.extension }}
+  build-linux:
+    name: Build Linux binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build Linux binary
+        run: |
+          go build -v -o ethcrawler_linux64 .
+          echo "Built ethcrawler for Linux"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethcrawler-linux
+          path: ethcrawler_linux64
+
+  build-macos-arm:
+    name: Build macOS ARM binary
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Build macOS binary
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          go build -v -o ethcrawler_macos_arm .
+          echo "Built ethcrawler for macOS ARM"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethcrawler-macos-arm
+          path: ethcrawler_macos_arm
 
   release:
-    name: Create Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Create GitHub Release
+    needs: [build-windows, build-linux, build-macos-arm]
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
 
-    - name: Download Windows build
-      uses: actions/download-artifact@v4
-      with:
-        name: ethcrawler-windows-amd64
-        path: ./artifacts/windows
-
-    - name: Download Linux build
-      uses: actions/download-artifact@v4
-      with:
-        name: ethcrawler-linux-amd64
-        path: ./artifacts/linux
-
-    - name: Download macOS build
-      uses: actions/download-artifact@v4
-      with:
-        name: ethcrawler-darwin-arm64
-        path: ./artifacts/macos
-
-    - name: Upload Windows build
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/windows/ethcrawler.exe
-        asset_name: ethcrawler-windows-amd64.exe
-        asset_content_type: application/octet-stream
-
-    - name: Upload Linux build
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/linux/ethcrawler
-        asset_name: ethcrawler-linux-amd64
-        asset_content_type: application/octet-stream
-
-    - name: Upload macOS build
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/macos/ethcrawler
-        asset_name: ethcrawler-darwin-arm64
-        asset_content_type: application/octet-stream 
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ethcrawler-windows/ethcrawler_winx64.exe
+            ethcrawler-linux/ethcrawler_linux64
+            ethcrawler-macos-arm/ethcrawler_macos_arm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
