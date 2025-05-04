@@ -44,16 +44,18 @@ func SaveToExcel(transfers []models.FormattedTransfer, filename string) error {
 		}
 	}()
 
-	// Delete default Sheet1
-	f.DeleteSheet("Sheet1")
-
 	// Create a new sheet
 	sheetName := "USDT Transactions"
-	index, err := f.NewSheet(sheetName)
+	_, err := f.NewSheet(sheetName)
 	if err != nil {
 		return fmt.Errorf("error creating sheet: %v", err)
 	}
-	f.SetActiveSheet(index)
+
+	// Delete default Sheet1
+	f.DeleteSheet("Sheet1")
+
+	// Set the active sheet
+	f.SetActiveSheet(1)
 
 	// Set headers style
 	headerStyle, err := f.NewStyle(&excelize.Style{
@@ -74,14 +76,6 @@ func SaveToExcel(transfers []models.FormattedTransfer, filename string) error {
 		return fmt.Errorf("error creating header style: %v", err)
 	}
 
-	// Create number formats
-	usdtStyle, err := f.NewStyle(&excelize.Style{
-		NumFmt: "#,##0.000000",
-	})
-	if err != nil {
-		return fmt.Errorf("error creating USDT style: %v", err)
-	}
-
 	// Add header
 	headers := []string{"Date", "From", "To", "Value (Wei)", "Value (USDT)", "Hash"}
 	for i, header := range headers {
@@ -92,56 +86,56 @@ func SaveToExcel(transfers []models.FormattedTransfer, filename string) error {
 	}
 
 	// Apply header style to header row
-	if err := f.SetCellStyle(sheetName, "A1", string(rune('A'+len(headers)-1))+"1", headerStyle); err != nil {
+	lastCol := string(rune('A' + len(headers) - 1))
+	if err := f.SetCellStyle(sheetName, "A1", lastCol+"1", headerStyle); err != nil {
 		return fmt.Errorf("error applying header style: %v", err)
 	}
 
-	// For large datasets, use streaming mode to reduce memory usage
-	streamWriter, err := f.NewStreamWriter(sheetName)
-	if err != nil {
-		return fmt.Errorf("error creating stream writer: %v", err)
-	}
-
-	// Add data using streaming mode
-	for i, tx := range transfers {
-		row := i + 2 // +2 because Excel rows are 1-indexed and we have a header row
-
-		// Format USDT value (convert from wei, 1 USDT = 10^6 wei for USDT)
-		valueWei := tx.Value
-		valueUSDT := 0.0
-
-		// Use big.Float for more accurate calculation
-		if val, ok := new(big.Float).SetString(valueWei); ok {
-			divisor := new(big.Float).SetFloat64(1e6)
-			val.Quo(val, divisor)
-
-			// Convert to float64 for display
-			valueUSDT, _ = val.Float64()
+	// Add data in batches to avoid memory issues
+	const batchSize = 5000
+	for i := 0; i < len(transfers); i += batchSize {
+		end := i + batchSize
+		if end > len(transfers) {
+			end = len(transfers)
 		}
 
-		// Write row data
-		err := streamWriter.SetRow(fmt.Sprintf("A%d", row), []interface{}{
-			tx.Date,
-			tx.From,
-			tx.To,
-			valueWei,
-			excelize.Cell{Value: valueUSDT, StyleID: usdtStyle},
-			tx.Hash,
-		})
+		fmt.Printf("Processing transactions %d-%d of %d...\n", i+1, end, len(transfers))
 
-		if err != nil {
-			return fmt.Errorf("error setting row %d: %v", row, err)
+		// Process this batch
+		for j := i; j < end; j++ {
+			tx := transfers[j]
+			row := j + 2 // +2 because Excel rows are 1-indexed and we have a header row
+
+			// Format USDT value (convert from wei, 1 USDT = 10^6 wei for USDT)
+			valueWei := tx.Value
+			valueUSDT := 0.0
+
+			// Use big.Float for more accurate calculation
+			if val, ok := new(big.Float).SetString(valueWei); ok {
+				divisor := new(big.Float).SetFloat64(1e6)
+				val.Quo(val, divisor)
+
+				// Convert to float64 for display
+				valueUSDT, _ = val.Float64()
+			}
+
+			// Add row data
+			cells := []interface{}{
+				tx.Date,
+				tx.From,
+				tx.To,
+				valueWei,
+				valueUSDT,
+				tx.Hash,
+			}
+
+			for k, value := range cells {
+				cell := fmt.Sprintf("%c%d", 'A'+k, row)
+				if err := f.SetCellValue(sheetName, cell, value); err != nil {
+					return fmt.Errorf("error setting cell value at %s: %v", cell, err)
+				}
+			}
 		}
-
-		// Report progress for large datasets
-		if i > 0 && i%5000 == 0 {
-			fmt.Printf("Processed %d of %d transactions...\n", i, len(transfers))
-		}
-	}
-
-	// Finalize the stream writer
-	if err := streamWriter.Flush(); err != nil {
-		return fmt.Errorf("error flushing stream writer: %v", err)
 	}
 
 	// Set column widths
@@ -153,8 +147,9 @@ func SaveToExcel(transfers []models.FormattedTransfer, filename string) error {
 		}
 	}
 
-	// Add filters to the header row
-	if err := f.AutoFilter(sheetName, "A1", string(rune('A'+len(headers)-1))+"1", ""); err != nil {
+	// Add filter
+	filterRange := fmt.Sprintf("A1:%s1", lastCol)
+	if err := f.AutoFilter(sheetName, filterRange, []excelize.AutoFilterOptions{}); err != nil {
 		return fmt.Errorf("error adding filter: %v", err)
 	}
 
